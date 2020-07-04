@@ -17,7 +17,22 @@ function s:FindItem(compile_commands, fname, mods)
   return {}
 endfunction
 
+let s:compilation_result = ''
+function s:TryReadingCompilationResult()
+  if empty(s:compilation_result)
+    au! GuybenAsync
+    return
+  endif
+  if !filereadable(s:compilation_result)
+    return
+  endif
+
+  au! GuybenAsync
+  execute 'lgetfile ' . s:compilation_result
+endfunction
+
 function s:SendCompilation(fname)
+  au! GuybenAsync
   if empty(g:guyben_compilation_database)
     let g:guyben_debug_error = "No compilation database file given"
     return
@@ -46,12 +61,24 @@ function s:SendCompilation(fname)
   endif
 
   let l:tmpfile = tempname()
-  let l:result_file = tempname()
-  silent execute '!' . l:item.command . ' ' . g:guyben_extra_options . ' 2> ' . l:tmpfile
-    \ . ' ; mv ' . l:tmpfile . ' ' . l:result_file
-  execute 'lgetfile ' . l:result_file
+  let s:compilation_result = tempname()
+  let l:compilation_cmd = l:item.command . ' ' . g:guyben_extra_options . ' 2> ' . l:tmpfile
+  let l:move_cmd = 'mv ' . l:tmpfile . ' ' . s:compilation_result
+  " Run the commands in the background
+  silent execute '!(' . l:compilation_cmd . ' ; ' . l:move_cmd . ' )&'
+  " Simulate timer using CursorHold
+  au! GuybenAsync CursorHold * call feedkeys('jk')
+  " Use the timer to check if the compilation result exists
+  " nested to trigger any QuickFixCmd* autocommands when executing lgetfile
+  au! GuybenAsync CursorMoved * nested call s:TryReadingCompilationResult()
 endfunction
 
-" nested to trigger any QuickFixCmd* autocommands when executing lgetfile
-autocmd BufWritePost * nested call s:SendCompilation(expand('<afile>'))
+augroup Guyben
+  au!
+  autocmd BufWritePost * call s:SendCompilation(expand('<afile>'))
+augroup END
+
+augroup GuybenAsync
+  au!
+augroup END
 
