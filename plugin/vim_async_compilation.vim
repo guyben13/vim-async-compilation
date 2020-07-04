@@ -1,9 +1,15 @@
 python import json
 python import vim
 
-let g:guyben_compilation_database = 'compile_commands.json'
-let g:guyben_extra_options = '-o /dev/null -fsyntax-only -Wno-error'
-let g:guyben_debug_error = ''
+if !exists('g:async_compilation#compilation_database')
+  let g:async_compilation#compilation_database = 'compile_commands.json'
+endif
+if !exists('g:async_compilation#extra_options')
+  let g:async_compilation#extra_options = '-o /dev/null -fsyntax-only -Wno-error'
+endif
+
+let g:async_compilation#debug_error = ''
+
 let s:compile_commands = {}
 let s:compile_commands_timestamp = 0
 
@@ -20,33 +26,33 @@ endfunction
 let s:compilation_result = ''
 function s:TryReadingCompilationResult()
   if empty(s:compilation_result)
-    au! GuybenAsync
+    au! AsyncCompilation#Timer
     return
   endif
   if !filereadable(s:compilation_result)
     return
   endif
 
-  au! GuybenAsync
+  au! AsyncCompilation#Timer
   execute 'lgetfile ' . s:compilation_result
 endfunction
 
 function s:SendCompilation(fname)
-  au! GuybenAsync
-  if empty(g:guyben_compilation_database)
-    let g:guyben_debug_error = "No compilation database file given"
+  au! AsyncCompilation#Timer
+  if empty(g:async_compilation#compilation_database)
+    let g:async_compilation#debug_error = "No compilation database file given"
     return
   endif
 
-  if !filereadable(g:guyben_compilation_database)
-    let g:guyben_debug_error = "Can't read file " . g:guyben_compilation_database
+  if !filereadable(g:async_compilation#compilation_database)
+    let g:async_compilation#debug_error = "Can't read file " . g:async_compilation#compilation_database
     return
   endif
 
-  let l:timestamp = getftime(g:guyben_compilation_database)
+  let l:timestamp = getftime(g:async_compilation#compilation_database)
   if s:compile_commands_timestamp != l:timestamp
     let s:compile_commands =
-      \ pyeval('json.loads(open(vim.eval("g:guyben_compilation_database"), "r").read())')
+      \ pyeval('json.loads(open(vim.eval("g:async_compilation#compilation_database"), "r").read())')
     let s:compile_commands_timestamp = l:timestamp
   endif
 
@@ -56,29 +62,29 @@ function s:SendCompilation(fname)
   endif
 
   if empty(l:item)
-    let g:guyben_debug_error = "Couldn't find compilation command for " . a:fname
+    let g:async_compilation#debug_error = "Couldn't find compilation command for " . a:fname
     return
   endif
 
   let l:tmpfile = tempname()
   let s:compilation_result = tempname()
-  let l:compilation_cmd = l:item.command . ' ' . g:guyben_extra_options . ' 2> ' . l:tmpfile
+  let l:compilation_cmd = l:item.command . ' ' . g:async_compilation#extra_options . ' 2> ' . l:tmpfile
   let l:move_cmd = 'mv ' . l:tmpfile . ' ' . s:compilation_result
   " Run the commands in the background
   silent execute '!(' . l:compilation_cmd . ' ; ' . l:move_cmd . ' )&'
   " Simulate timer using CursorHold
-  au! GuybenAsync CursorHold * call feedkeys('jk')
+  au! AsyncCompilation#Timer CursorHold * call feedkeys('jk')
   " Use the timer to check if the compilation result exists
   " nested to trigger any QuickFixCmd* autocommands when executing lgetfile
-  au! GuybenAsync CursorMoved * nested call s:TryReadingCompilationResult()
+  au! AsyncCompilation#Timer CursorMoved * nested call s:TryReadingCompilationResult()
 endfunction
 
-augroup Guyben
+augroup AsyncCompilation
   au!
   autocmd BufWritePost * call s:SendCompilation(expand('<afile>'))
 augroup END
 
-augroup GuybenAsync
+augroup AsyncCompilation#Timer
   au!
 augroup END
 
